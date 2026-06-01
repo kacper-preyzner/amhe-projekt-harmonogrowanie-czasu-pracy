@@ -1,0 +1,277 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+% Klasyczny plik polish.ldf bywa nieobecny w minimalnych dystrybucjach TeX-a;
+% nowoczesny babel wczytuje jezyk z pliku .ini przez \babelprovide.
+\usepackage{babel}
+\babelprovide[import, main]{polish}
+\usepackage{amsmath,amssymb}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{geometry}
+\usepackage{float}
+\usepackage{enumitem}
+\geometry{margin=2.4cm}
+\graphicspath{{figures/}}
+
+\title{\textbf{Harmonogramowanie pracy w call center}\\
+\large Algorytm memetyczny (NSGA-II + przeszukiwanie lokalne) z operatorem
+naprawczym wymuszaj\k{a}cym ograniczenia Kodeksu pracy\\[4pt]
+\normalsize Projekt z przedmiotu AMHE --- temat nr 7}
+\author{Kacper Preyzner}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Praca dotyczy uk\l adania tygodniowego grafiku pracy dla call center w spos\'ob
+zgodny z polskim Kodeksem pracy. Problem sformu\l owano jako optymalizacj\k{e}
+\emph{dwukryterialn\k{a}} (minimalizacja koszt\'ow oraz niedopasowania zmian do
+preferencji pracownik\'ow) z twardymi ograniczeniami prawnymi. Zaproponowano
+\emph{algorytm memetyczny}: w\l asn\k{a} implementacj\k{e} NSGA-II~\cite{deb2002nsga2}
+po\l \k{a}czon\k{a} z przeszukiwaniem lokalnym oraz \emph{operatorem naprawczym},
+kt\'ory gwarantuje legalno\'s\'c ka\.zdego ocenianego rozwi\k{a}zania. Jako punkt
+odniesienia wykorzystano dok\l adny solver CP-SAT z biblioteki OR-Tools~\cite{ortools}.
+Przeprowadzono trzy eksperymenty: por\'ownanie z~CP-SAT, badanie ablacyjne wp\l ywu
+przeszukiwania lokalnego oraz test reoptymalizacji po absencji pracownika.
+\end{abstract}
+
+\tableofcontents
+\bigskip
+
+%=====================================================================
+\part*{Faza 1 --- opis problemu, algorytm\'ow i planu eksperyment\'ow}
+\addcontentsline{toc}{section}{Faza 1 --- opis problemu i algorytm\'ow}
+
+\section{Opis problemu}
+\label{sec:problem}
+
+Rozwa\.zamy call center zatrudniaj\k{a}ce $E$ pracownik\'ow, dla kt\'orych nale\.zy
+u\l o\.zy\'c grafik na horyzont $D$ dni. Doba dzielona jest na 48 \emph{slot\'ow}
+30-minutowych. Dla ka\.zdego slotu znana jest \emph{prognozowana liczba po\l \k{a}cze\'n},
+przeliczana na wymagan\k{a} obsad\k{e} (liczb\k{e} agent\'ow). W~niniejszej pracy
+warstw\k{e} predykcyjn\k{a} zast\k{e}pujemy parametrycznym generatorem popytu o profilu
+typowym dla call center (dwa szczyty: poranny i popo\l udniowy).
+
+\paragraph{Cel.} Zadanie ma trzy cele o malej\k{a}cym priorytecie:
+\begin{enumerate}[noitemsep]
+  \item u\l o\.zy\'c grafik \textbf{zgodny z regu\l ami} Kodeksu pracy (wymagane),
+  \item \textbf{minimalizowa\'c koszty} wynagrodze\'n i~niedoboru obs\l ugi (po\.z\k{a}dane),
+  \item \textbf{maksymalizowa\'c dopasowanie} zmian do preferencji pracownik\'ow (opcjonalne).
+\end{enumerate}
+Cele 2 i~3 s\k{a} cz\k{e}sto sprzeczne, dlatego problem traktujemy
+\emph{wielokryterialnie} --- wynikiem jest \emph{front Pareto} kompromis\'ow.
+
+\subsection{Reprezentacja rozwi\k{a}zania}
+Grafik kodujemy dwiema macierzami liczb ca\l kowitych o wymiarze $E\times D$:
+\texttt{start} (slot pocz\k{a}tku zmiany) oraz \texttt{length} (d\l ugo\'s\'c zmiany
+w~slotach; warto\'s\'c 0 oznacza dzie\'n wolny). Kodowanie z~natury wymusza
+\emph{ci\k{a}g\l o\'s\'c} zmiany.
+
+\subsection{Twarde ograniczenia (Kodeks pracy)}
+\label{sec:hard}
+Naruszenie kt\'oregokolwiek z~poni\.zszych \emph{zeruje} rozwi\k{a}zanie; w~praktyce
+wymusza je operator naprawczy (sekcja~\ref{sec:repair}):
+\begin{itemize}[noitemsep]
+  \item dobowy czas pracy $\le 8$~h; tygodniowy $\le 40$~h,
+  \item nieprzerwany odpoczynek dobowy $\ge 11$~h oraz tygodniowy $\ge 35$~h,
+  \item praca nocna (21:00--7:00) ograniczona do 8~h (wynika z~limitu dobowego),
+  \item przerwy: $\ge 6$~h pracy $\Rightarrow$ 15~min, $>9$~h $\Rightarrow$ kolejne 15~min.
+\end{itemize}
+
+\subsection{Kryteria oceny}
+\label{sec:obj}
+Przyjmujemy stawki na rok 2026: p\l aca minimalna 4806~z\l/mies., stawka godzinowa
+31{,}40~z\l. Definiujemy dwa kryteria (oba minimalizowane):
+\begin{align}
+  f_1(\mathbf{x}) &= \underbrace{\textstyle\sum \text{p\l ace}}_{\text{podstawa + dodatki}}
+    + c_{\text{br}}\cdot \mathrm{niedob\acute{o}r}(\mathbf{x}), \\
+  f_2(\mathbf{x}) &= \textstyle\sum_{e,d}\big|\{\text{sloty pracy poza oknem preferencji } e\}\big|.
+\end{align}
+Dodatki: nocny ($+20\%$ stawki minimalnej za godzin\k{e} nocn\k{a}) oraz niedzielny/
+\'swi\k{a}teczny ($+100\%$). \emph{Niedob\'or} to suma brakuj\k{a}cych agento-slot\'ow
+wzgl\k{e}dem popytu, karana stawk\k{a} $c_{\text{br}}$ (utracone po\l \k{a}czenia).
+
+\section{Algorytmy}
+\label{sec:algo}
+
+\subsection{NSGA-II}
+Zaimplementowano w\l asne j\k{a}dro NSGA-II~\cite{deb2002nsga2}: relacj\k{e} dominacji
+Pareto, szybkie sortowanie niezdominowane, miar\k{e} zag\k{e}szczenia (\emph{crowding
+distance}), selekcj\k{e} turniejow\k{a} wg pary (ranga, zag\k{e}szczenie) oraz
+elitarn\k{a} sukcesj\k{e} $(\mu+\lambda)$.
+
+\subsection{Operatory genetyczne}
+Inicjalizacja losuje zmiany dopasowane do okna popytu. Krzy\.zowanie jest jednorodne
+na poziomie pracownika (wymiana ca\l ych wierszy grafiku). Mutacje obejmuj\k{a}:
+przesuni\k{e}cie pocz\k{a}tku zmiany, zmian\k{e} d\l ugo\'sci oraz prze\l \k{a}czenie
+wolne$\leftrightarrow$praca. Po ka\.zdej operacji stosowany jest operator naprawczy.
+
+\subsection{Operator naprawczy}
+\label{sec:repair}
+Operator naprawczy (\,,,stra\.znik prawa'') przekszta\l ca dowolny grafik w~\emph{w~pe\l ni
+legalny}, naprawiaj\k{a}c kolejno: (A) struktur\k{e} i~limit dobowy, (B) odpoczynek
+dobowy, (C) tygodniowy limit godzin, (D) odpoczynek tygodniowy. Kolejno\'s\'c dobrano
+tak, by \.zaden krok nie psu\l poprzedniego; wszystkie kroki jedynie skracaj\k{a} lub
+usuwaj\k{a} prac\k{e}, wi\k{e}c wynik jest gwarantowanie legalny.
+
+\subsection{Przeszukiwanie lokalne (komponent memetyczny)}
+Ka\.zdy potomek mo\.ze zosta\'c ,,dopieszczony'' seri\k{a} zach\l annych ruch\'ow
+lokalnych optymalizuj\k{a}cych \emph{wa\.zon\k{a} skalaryzacj\k{e}} kryteri\'ow
+($f_1 + w\cdot f_2$, z~losow\k{a} wag\k{a} $w$ na wywo\l anie). Ruchy: usuni\k{e}cie
+zmiany w~slocie z~nadwy\.zk\k{a} obsady, dodanie kr\'otkiej zmiany pokrywaj\k{a}cej
+niedob\'or, dosuni\k{e}cie zmiany ku preferencji. Flaga \texttt{use\_local\_search}
+pozwala wy\l \k{a}czy\'c ten komponent (badanie ablacyjne).
+
+\subsection{Baseline CP-SAT}
+Ten sam problem modelujemy w~CP-SAT (OR-Tools~\cite{ortools}) jednokryterialnie
+(minimalizacja $f_1$). Dla ma\l ych instancji solver znajduje rozwi\k{a}zanie
+\emph{optymalne}, stanowi\k{a}c punkt odniesienia jako\'sci.
+
+\subsection{Reoptymalizacja po absencji}
+Po zg\l oszeniu nieobecno\'sci pracownika nie przebudowujemy ca\l ego grafiku ---
+usuwamy jego zmiany i~\emph{lokalnie} \l atamy powsta\l \k{a} luk\k{e}, dok\l adaj\k{a}c
+zmiany wolnym, kompetentnym zast\k{e}pcom (z~zachowaniem legalno\'sci).
+
+\section{Plan eksperyment\'ow, hipotezy i~miary}
+\label{sec:plan}
+
+\paragraph{Scenariusze.}
+\begin{enumerate}[noitemsep]
+  \item \textbf{vs CP-SAT} (instancja ma\l a) --- luka kosztu i~czas oblicze\'n.
+  \item \textbf{Ablacja} (instancja \'srednia) --- memetyk vs czysty NSGA-II:
+        hiperobj\k{e}to\'s\'c~\cite{zitzler2003hypervolume}, najlepszy koszt, zbie\.zno\'s\'c.
+  \item \textbf{Zaburzenie} --- absencja pracownika i~lokalna reoptymalizacja:
+        czas oraz przywr\'ocone pokrycie.
+\end{enumerate}
+
+\paragraph{Miary.} Warto\'sci kryteri\'ow $f_1,f_2$; procent spe\l nienia twardych
+ogranicze\'n (cel: 100\%); czas oblicze\'n; hiperobj\k{e}to\'s\'c frontu Pareto;
+liczba ewaluacji. Por\'ownania mi\k{e}dzy wariantami: test Manna--Whitneya~U
+z~korekt\k{a} Holma~\cite{holm1979simple} ($\alpha=0{,}05$), powt\'orzenia dla wielu ziaren.
+
+\paragraph{Hipotezy.}
+\begin{description}[noitemsep]
+  \item[H1] Memetyk osi\k{a}ga lepsz\k{a} hiperobj\k{e}to\'s\'c frontu ni\.z czysty
+    NSGA-II (przeszukiwanie lokalne przyspiesza zbie\.zno\'s\'c).
+  \item[H2] CP-SAT na ma\l ej instancji daje koszt nie gorszy ni\.z memetyk
+    (luka $\ge 0$), lecz jego czas ro\'snie znacznie szybciej z~rozmiarem.
+  \item[H3] Lokalna reoptymalizacja po absencji odzyskuje istotn\k{a} cz\k{e}\'s\'c
+    pokrycia w~czasie o~rz\k{e}dy wielko\'sci kr\'otszym ni\.z pe\l na optymalizacja.
+\end{description}
+
+%=====================================================================
+\part*{Faza 2 --- wyniki, analiza i~wnioski}
+\addcontentsline{toc}{section}{Faza 2 --- wyniki i~wnioski}
+
+\section{Konfiguracja eksperyment\'ow}
+Generator danych tworzy instancje: ma\l \k{a} (CP-SAT: 6 prac.~$\times$~3 dni),
+\'sredni\k{a} (15 prac.~$\times$~14 dni). Parametry NSGA-II: populacja 40, 60 pokole\'n,
+prawd.~krzy\.zowania 0{,}9, wsp.~mutacji 0{,}1, przeszukiwanie lokalne na 50\%
+potomstwa (15 krok\'ow). Powt\'orzenia: 5 niezale\.znych ziaren. Wszystkie wyniki
+i~rysunki s\k{a} generowane automatycznie przez \texttt{amhe.experiments.run}.
+
+\section{Scenariusz 1: por\'ownanie z~CP-SAT}
+Tabela~\ref{tab:vs_cpsat} (plik \texttt{results/vs\_cpsat.csv}) zestawia koszt
+i~czas. CP-SAT znajduje optimum ma\l ej instancji w~u\l amku sekundy; memetyk osi\k{a}ga
+koszt wi\k{e}kszy o~kilkana\'scie--kilkadziesi\k{a}t procent (luka dodatnia, zgodnie
+z~H2), lecz jest to metoda anytime, skaluj\k{a}ca si\k{e} na instancje, dla kt\'orych
+CP-SAT przestaje by\'c praktyczny. Rysunek~\ref{fig:gantt_cpsat} pokazuje optymalny
+grafik, a~\ref{fig:coverage_cpsat} --- dopasowanie obsady do popytu.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.85\textwidth]{gantt_cpsat.png}
+  \caption{Optymalny harmonogram znaleziony przez CP-SAT (kolor = pora dnia).}
+  \label{fig:gantt_cpsat}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.8\textwidth]{coverage_cpsat.png}
+  \caption{CP-SAT: pokrycie popytu w~wybranym dniu. Pozosta\l e niedobory to
+  pojedyncze sloty, kt\'orych pokrycie pe\l n\k{a} zmian\k{a} jest dro\.zsze ni\.z kara.}
+  \label{fig:coverage_cpsat}
+\end{figure}
+
+% Tabela z surowymi wynikami CP-SAT vs memetyk jest w results/vs_cpsat.csv.
+
+\section{Scenariusz 2: wp\l yw przeszukiwania lokalnego (ablacja)}
+Tabele~\ref{tab:ablation_summary} i~\ref{tab:ablation_hv} podsumowuj\k{a} koszt
+i~hiperobj\k{e}to\'s\'c, a~test istotno\'sci znajduje si\k{e} w~tabeli
+\ref{tab:ablation_test}. Rysunek~\ref{fig:conv} przedstawia krzywe zbie\.zno\'sci,
+\ref{fig:pareto} --- uzyskane fronty Pareto, \ref{fig:box} --- rozk\l ad kosztu.
+Zgodnie z~H1 wariant memetyczny osi\k{a}ga wy\.zsz\k{a} hiperobj\k{e}to\'s\'c frontu.
+
+\input{tables/ablation_summary.tex}
+\input{tables/ablation_hv.tex}
+\input{tables/ablation_test.tex}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.8\textwidth]{convergence_ablation.png}
+  \caption{Krzywe zbie\.zno\'sci najlepszego kosztu (\'srednia z~ziaren, pas min--max).}
+  \label{fig:conv}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.75\textwidth]{pareto_ablation.png}
+  \caption{Fronty Pareto: koszt vs kara preferencji.}
+  \label{fig:pareto}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.65\textwidth]{boxplot_ablation.png}
+  \caption{Rozk\l ad najlepszego kosztu dla obu wariant\'ow.}
+  \label{fig:box}
+\end{figure}
+
+\section{Scenariusz 3: reoptymalizacja po absencji}
+Plik \texttt{results/disruption.csv} zawiera, dla ka\.zdego ziarna: niedob\'or przed
+i~po za\l ataniu, liczb\k{e} odzyskanych agento-slot\'ow, zmian\k{e} kosztu oraz czas
+reoptymalizacji. Rysunki~\ref{fig:before}--\ref{fig:after} pokazuj\k{a} grafik przed
+absencj\k{a} i~po lokalnym za\l ataniu. Zgodnie z~H3 reoptymalizacja odzyskuje du\.z\k{a}
+cz\k{e}\'s\'c pokrycia w~czasie rz\k{e}du dziesi\k{a}tych cz\k{e}\'sci sekundy.
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.9\textwidth]{gantt_before_absence.png}
+  \caption{Grafik przed absencj\k{a}.}
+  \label{fig:before}
+\end{figure}
+
+\begin{figure}[H]
+  \centering
+  \includegraphics[width=0.9\textwidth]{gantt_after_reopt.png}
+  \caption{Grafik po lokalnej reoptymalizacji (zmiany nieobecnego usuni\k{e}te,
+  luka za\l atana zast\k{e}pcami).}
+  \label{fig:after}
+\end{figure}
+
+\section{Wnioski}
+\begin{itemize}[noitemsep]
+  \item Operator naprawczy skutecznie sprowadza problem z~twardymi ograniczeniami
+    do przeszukiwania w~przestrzeni rozwi\k{a}za\'n \emph{legalnych}, co potwierdzaj\k{a}
+    testy jednostkowe (ka\.zde oceniane rozwi\k{a}zanie jest legalne).
+  \item Komponent memetyczny poprawia jako\'s\'c frontu Pareto (H1) --- przeszukiwanie
+    lokalne ukierunkowuje populacj\k{e} ku lepszym kompromisom koszt/preferencje.
+  \item CP-SAT pozostaje z\l otym standardem jako\'sci na ma\l ych instancjach (H2),
+    lecz metaheurystyka oferuje korzystny kompromis jako\'s\'c/czas i~skalowalno\'s\'c.
+  \item Lokalna reoptymalizacja umo\.zliwia szybk\k{a} reakcj\k{e} na zaburzenia (H3)
+    bez kosztownej przebudowy ca\l ego grafiku.
+\end{itemize}
+
+\paragraph{Mo\.zliwe rozszerzenia.} W\l \k{a}czenie warstwy predykcyjnej (XGBoost/LSTM)
+prognozuj\k{a}cej popyt, modelowanie kompetencji i~kolejek, wieloetatowo\'s\'c oraz
+por\'ownanie z~innymi metaheurystykami wielokryterialnymi.
+
+\bibliographystyle{plain}
+\bibliography{references}
+
+\end{document}

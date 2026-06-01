@@ -1,0 +1,29 @@
+[project]
+name = "amhe-callcenter"
+version = "0.1.0"
+description = "Harmonogramowanie pracy w call center (projekt AMHE nr 7): memetyczny NSGA-II + operator naprawczy + baseline CP-SAT"
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "numpy>=1.26",
+    "pandas>=2.0",
+    "scipy>=1.11",
+    "matplotlib>=3.8",
+    "scikit-learn>=1.3",
+    "ortools>=9.10",
+    "plotly>=5.20",
+]
+
+[dependency-groups]
+dev = ["pytest>=7.4"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["amhe"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

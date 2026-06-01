@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.venv/
+
+# uv
+# (uv.lock jest wersjonowany — pomaga w reprodukowalnosci)
+
+# Wyniki i artefakty (generowane)
+results/*.csv
+results/*.log
+figures/*.png
+figures/*.pdf
+report/figures/*.png
+report/figures/*.pdf
+report/figures/*.html
+report/tables/*.tex
+
+# LaTeX
+report/*.aux
+report/*.log
+report/*.out
+report/*.toc
+report/*.bbl
+report/*.blg
+report/raport.pdf
+
+# Edytory / OS
+.vscode/
+.idea/
+.DS_Store
