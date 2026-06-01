@@ -25,7 +25,7 @@ report/*.out
 report/*.toc
 report/*.bbl
 report/*.blg
-report/raport.pdf
+# report/raport.pdf jest wersjonowany (gotowy raport do oddania)
 
 # Edytory / OS
 .vscode/
