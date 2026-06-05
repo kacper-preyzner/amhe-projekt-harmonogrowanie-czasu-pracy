@@ -1,19 +1,6 @@
-"""Trzy scenariusze eksperymentalne z dokumentacji wstepnej.
-
-1. ``vs_cpsat``   — memetyk vs dokladny CP-SAT na malej instancji (luka kosztu, czas),
-2. ``ablation``  — memetyk (z LS) vs czysty NSGA-II (bez LS) na sredniej instancji,
-3. ``disruption``— absencja pracownika i lokalna reoptymalizacja (czas, jakosc).
-
-Kazda funkcja zwraca liste rekordow (slownikow) gotowych do zapisania w CSV i dalszej
-analizy. Przebiegi sa powtarzane dla wielu ziaren (reprodukowalnosc).
-"""
-
 from __future__ import annotations
-
 import time
-
 import numpy as np
-
 from amhe.baseline import solve_cpsat
 from amhe.data.generator import scenario_cpsat, scenario_medium, scenario_small
 from amhe.model.objectives import breakdown, preference_penalty

@@ -15,4 +15,4 @@ fi
 
 echo ">> uv run python -m amhe.experiments.run ${ARGS[*]}"
 uv run python -m amhe.experiments.run "${ARGS[@]}"
-echo ">> Wyniki: results/*.csv | figury: figures/ i report/figures/ | tabele: report/tables/"
+echo ">> Wyniki: results/*.csv | figury: figures/"

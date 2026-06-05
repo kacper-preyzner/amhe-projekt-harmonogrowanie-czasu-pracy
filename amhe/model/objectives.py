@@ -1,16 +1,4 @@
-"""Kryteria oceny grafiku: koszt oraz kara za niedopasowanie preferencji.
-
-Optymalizacja jest dwukryterialna (minimalizacja obu wartosci):
-
-1. **Koszt** = wynagrodzenia (podstawa + dodatki: nocny, niedzielny/swiateczny)
-   + kara za niedobor obsady wzgledem popytu (utracone polaczenia). Nadmiarowa
-   obsada nie wymaga osobnej kary, bo jest naturalnie zniechecana przez koszt plac.
-2. **Kara preferencji** = liczba przepracowanych slotow poza preferowanym przez
-   pracownika oknem pory dnia (pracownik z preferencja "dowolna" nigdy nie jest karany).
-
-Poniewaz operator naprawczy zapewnia legalnosc, front Pareto jest czystym
-kompromisem koszt x dopasowanie preferencji.
-"""
+"""Kryteria oceny grafiku: f1 (koszt) i f2 (kara preferencji)."""
 
 from __future__ import annotations
 
@@ -19,13 +7,12 @@ import numpy as np
 from amhe.model import labor_law as law
 from amhe.model.schedule import ProblemInstance, Schedule, coverage
 
-#: kara za jeden brakujacy agento-slot (utracona obsluga); wyrazona w zl,
-#: dobrana powyzej kosztu obsadzenia slotu, by oplacalo sie pokrywac popyt
+# kara za brakujący agento-slot — wyższa niż koszt obsadzenia, by opłacało się pokrywać popyt
 UNDERSTAFF_PENALTY_PER_SLOT: float = 3.0 * law.BASE_PER_SLOT
 
 
 def wage_cost(instance: ProblemInstance, schedule: Schedule) -> float:
-    """Calkowity koszt wynagrodzen (podstawa + dodatki nocny i niedzielny/swiateczny)."""
+    """Koszt wynagrodzeń: podstawa + dodatki nocny i niedzielny/świąteczny."""
     night = law.night_mask()
     total = 0.0
     for e in range(schedule.n_employees):
@@ -42,13 +29,13 @@ def wage_cost(instance: ProblemInstance, schedule: Schedule) -> float:
 
 
 def coverage_shortfall(instance: ProblemInstance, schedule: Schedule) -> int:
-    """Calkowity niedobor obsady (suma brakujacych agento-slotow wzgledem popytu)."""
+    """Suma brakujących agento-slotów względem popytu."""
     cov = coverage(instance, schedule)
     return int(np.maximum(instance.demand - cov, 0).sum())
 
 
 def coverage_surplus(instance: ProblemInstance, schedule: Schedule) -> int:
-    """Calkowita nadmiarowa obsada (suma agento-slotow ponad popyt)."""
+    """Suma nadmiarowych agento-slotów."""
     cov = coverage(instance, schedule)
     return int(np.maximum(cov - instance.demand, 0).sum())
 
@@ -58,14 +45,14 @@ def cost_objective(
     schedule: Schedule,
     understaff_penalty: float = UNDERSTAFF_PENALTY_PER_SLOT,
 ) -> float:
-    """Kryterium kosztu: wynagrodzenia + kara za niedobor obsady."""
+    """f1 = wynagrodzenia + kara za niedobór obsady."""
     return wage_cost(instance, schedule) + understaff_penalty * coverage_shortfall(
         instance, schedule
     )
 
 
 def preference_penalty(instance: ProblemInstance, schedule: Schedule) -> float:
-    """Kryterium preferencji: liczba przepracowanych slotow poza preferowanym oknem."""
+    """f2 = liczba slotów przepracowanych poza preferowanym oknem pracownika."""
     penalty = 0.0
     for e, emp in enumerate(instance.employees):
         mask = emp.pref_mask
@@ -83,7 +70,7 @@ def evaluate(
     schedule: Schedule,
     understaff_penalty: float = UNDERSTAFF_PENALTY_PER_SLOT,
 ) -> np.ndarray:
-    """Wektor kryteriow [koszt, kara_preferencji] (do minimalizacji przez NSGA-II)."""
+    """Wektor kryteriów [f1, f2] do minimalizacji przez NSGA-II."""
     return np.array(
         [
             cost_objective(instance, schedule, understaff_penalty),
@@ -94,7 +81,7 @@ def evaluate(
 
 
 def breakdown(instance: ProblemInstance, schedule: Schedule) -> dict:
-    """Rozbicie kryteriow na skladniki (do raportow i analizy)."""
+    """Rozbicie f1 na składniki (do raportów)."""
     wages = wage_cost(instance, schedule)
     shortfall = coverage_shortfall(instance, schedule)
     return {

@@ -1,16 +1,4 @@
-"""Przeszukiwanie lokalne ("dopieszczanie" osobnika) dla algorytmu memetycznego.
-
-Po operatorach genetycznych kazdy osobnik moze zostac poprawiony seria drobnych,
-zachlannych ruchow. Poniewaz problem jest dwukryterialny, optymalizujemy **wazona
-skalaryzacje** kryteriow (koszt + waga * kara_preferencji); wagi sa losowane dla
-kazdego wywolania, dzieki czemu przeszukiwanie lokalne sciaga osobniki w roznych
-kierunkach frontu Pareto (a nie tylko ku minimum kosztu).
-
-Ruchy (wszystkie z natychmiastowa naprawa, wiec wynik pozostaje legalny):
-    * dosuniecie zmiany do okna popytu/preferencji (redukcja niedoboru i kary),
-    * usuniecie zmiany w slocie z duza nadwyzka obsady (redukcja kosztu),
-    * dodanie krotkiej zmiany pokrywajacej najwiekszy niedobor (redukcja niedoboru).
-"""
+"""Przeszukiwanie lokalne (hill-climbing na ważonej skalaryzacji kryteriów)."""
 
 from __future__ import annotations
 
@@ -27,7 +15,6 @@ from amhe.repair import repair
 
 
 def _scalar(instance, schedule, weight):
-    """Skalaryzacja kryteriow: koszt + weight * kara_preferencji."""
     return cost_objective(instance, schedule) + weight * preference_penalty(
         instance, schedule
     )
@@ -36,7 +23,7 @@ def _scalar(instance, schedule, weight):
 def local_search(schedule: Schedule, instance: ProblemInstance,
                  rng: np.random.Generator, max_steps: int = 20,
                  weight: float | None = None) -> Schedule:
-    """Zachlanny hill-climbing na skalaryzacji kryteriow. Zwraca poprawiony grafik."""
+    """Zachłanny hill-climbing. Waga losowana losowo, by eksplorować różne kierunki frontu."""
     if weight is None:
         weight = float(rng.uniform(0.0, 2.0)) * law.BASE_PER_SLOT
     best = repair(schedule)
@@ -55,28 +42,28 @@ def local_search(schedule: Schedule, instance: ProblemInstance,
 
 def _propose(schedule: Schedule, instance: ProblemInstance,
              rng: np.random.Generator) -> Schedule | None:
-    """Proponuje jeden ruch lokalny (lub ``None``, jesli nie da sie go wykonac)."""
+    """Proponuje jeden ruch lokalny (None jeśli nie wykonalny)."""
     cov = coverage(instance, schedule)
-    deficit = instance.demand - cov            # >0 niedobor, <0 nadwyzka
+    deficit = instance.demand - cov
     s = schedule.copy()
     move = rng.integers(0, 3)
 
     if move == 0:
-        # usun zmiane pracownika, ktory pracuje w slotach z duza nadwyzka
+        # usuń zmianę w slocie z nadwyżką
         working = [(e, d) for e in range(s.n_employees) for d in range(s.n_days)
                    if s.length[e, d] > 0]
         if not working:
             return None
         e, d = working[rng.integers(0, len(working))]
         st, ln = int(s.start[e, d]), int(s.length[e, d])
-        if deficit[d, st:st + ln].max() <= 0:   # caly blok jest nadmiarowy
+        if deficit[d, st:st + ln].max() <= 0:
             s.length[e, d] = 0
             s.start[e, d] = 0
             return s
         return None
 
     if move == 1:
-        # dodaj krotka zmiane pokrywajaca najwiekszy niedobor
+        # dodaj krótką zmianę pokrywającą największy niedobór
         if deficit.max() <= 0:
             return None
         d, slot = np.unravel_index(int(np.argmax(deficit)), deficit.shape)
@@ -90,7 +77,7 @@ def _propose(schedule: Schedule, instance: ProblemInstance,
         s.length[e, d] = ln
         return s
 
-    # move == 2: dosun losowa zmiane ku preferencji pracownika
+    # move == 2: dosuń zmianę ku preferencji pracownika
     working = [(e, d) for e in range(s.n_employees) for d in range(s.n_days)
                if s.length[e, d] > 0]
     if not working:
