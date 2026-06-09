@@ -91,8 +91,7 @@ def scenario_small(seed: int = 1) -> ProblemInstance:
 
 
 def scenario_medium(seed: int = 2) -> ProblemInstance:
-    return generate_instance(15, 14, seed=seed, start_weekday=0, holidays=(9,),
-                             name="sredni_15x14")
+    return generate_instance(15, 14, seed=seed, start_weekday=0, holidays=(9,), name="sredni_15x14")
 
 
 def scenario_cpsat(seed: int = 3) -> ProblemInstance:

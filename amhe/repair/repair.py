@@ -1,7 +1,10 @@
 """Operator naprawczy — przekształca dowolny grafik w w pełni legalny.
 
-Kolejność kroków: A) limit dobowy, B) odpoczynek dobowy,
-C) tygodniowy limit godzin, D) odpoczynek tygodniowy.
+Kolejność kroków: 
+A) limit dobowy, 
+B) odpoczynek dobowy,
+C) tygodniowy limit godzin, 
+D) odpoczynek tygodniowy.
 """
 
 from __future__ import annotations
@@ -12,7 +15,7 @@ from amhe.model.schedule import Schedule, absolute_shifts
 
 
 def repair(schedule: Schedule) -> Schedule:
-    """Zwraca nową, legalną kopię grafiku (oryginał nie jest modyfikowany)."""
+    """Zwraca nową, legalną kopię grafiku."""
     s = schedule.copy()
     start, length = s.start, s.length
     E, D = s.n_employees, s.n_days
