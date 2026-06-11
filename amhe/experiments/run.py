@@ -20,8 +20,6 @@ from amhe.experiments import scenarios
 
 RESULTS_DIR = Path("results")
 FIGURES_DIR = Path("figures")
-REPORT_FIG_DIR = Path("report/figures")
-REPORT_TAB_DIR = Path("report/tables")
 
 
 def _save_csv(records, name):
@@ -32,10 +30,9 @@ def _save_csv(records, name):
 
 
 def _figpaths(stem):
-    """Zapisujemy figury rownolegle do figures/ i report/figures/."""
+    """Zapisujemy figury rownolegle do figures/."""
     FIGURES_DIR.mkdir(parents=True, exist_ok=True)
-    REPORT_FIG_DIR.mkdir(parents=True, exist_ok=True)
-    return FIGURES_DIR / stem, REPORT_FIG_DIR / stem
+    return FIGURES_DIR / stem
 
 
 def experiment_vs_cpsat(cfg):
@@ -45,14 +42,10 @@ def experiment_vs_cpsat(cfg):
         cpsat_time=cfg["cpsat_time"])
     df = _save_csv(records, "vs_cpsat")
     inst, cp = extra["instance"], extra["cpsat"]
-    for stem in _figpaths("gantt_cpsat"):
-        gantt.gantt_matplotlib(inst, cp.schedule, stem,
-                               title="Harmonogram CP-SAT (optimum)")
-    gantt.gantt_plotly(inst, cp.schedule, REPORT_FIG_DIR / "gantt_cpsat",
-                       title="Harmonogram CP-SAT (interaktywny)")
-    for stem in _figpaths("coverage_cpsat"):
-        plots.plot_coverage(inst, cp.schedule, stem, day=1,
-                            title="CP-SAT: pokrycie popytu (dzien 1)")
+    gantt.gantt_matplotlib(inst, cp.schedule, _figpaths("gantt_cpsat"),
+                           title="Harmonogram CP-SAT (optimum)")
+    plots.plot_coverage(inst, cp.schedule, _figpaths("coverage_cpsat"), day=1,
+                        title="CP-SAT: pokrycie popytu (dzien 1)")
     print(df.to_string(index=False))
     return df
 
@@ -63,9 +56,8 @@ def experiment_ablation(cfg):
         seeds=cfg["seeds"], gens=cfg["gens"], pop=cfg["pop"])
     df = _save_csv(records, "ablation")
 
-    for stem in _figpaths("convergence_ablation"):
-        plots.plot_convergence(extra["histories"], stem,
-                               title="Zbieznosc: memetyk vs NSGA-II")
+    plots.plot_convergence(extra["histories"], _figpaths("convergence_ablation"),
+                           title="Zbieznosc: memetyk vs NSGA-II")
 
     # krzywa hiperobjetosci znormalizowana do 1; punkt odniesienia HV jest
     # wspolny dla obu metod w ramach ziarna, wiec normalizujemy per ziarno
@@ -74,10 +66,9 @@ def experiment_ablation(cfg):
                for m, v in extra["hv_histories"].items()}
     denom = np.maximum.reduce([a.max(axis=1) for a in hv_runs.values()])
     hv_norm = {m: a / denom[:, None] for m, a in hv_runs.items()}
-    for stem in _figpaths("hv_ablation"):
-        plots.plot_convergence(hv_norm, stem,
-                               ylabel="hiperobjetosc (znormalizowana)",
-                               title="Hiperobjetosc frontu: memetyk vs NSGA-II")
+    plots.plot_convergence(hv_norm, _figpaths("hv_ablation"),
+                           ylabel="hiperobjetosc (znormalizowana)",
+                           title="Hiperobjetosc frontu: memetyk vs NSGA-II")
     hv_rows = [
         {"method": m, "seed": seed, "generation": g, "hypervolume_norm": val}
         for m, runs in hv_norm.items()
@@ -85,26 +76,12 @@ def experiment_ablation(cfg):
         for g, val in enumerate(run)
     ]
     _save_csv(hv_rows, "hv_history")
-    for stem in _figpaths("pareto_ablation"):
-        plots.plot_pareto(extra["pareto"], stem,
-                          title="Fronty Pareto: memetyk vs NSGA-II")
-    groups = {m: df[df.method == m]["cost"].values for m in df.method.unique()}
-    for stem in _figpaths("boxplot_ablation"):
-        plots.plot_boxplot(groups, stem, title="Koszt: memetyk vs NSGA-II")
 
-    REPORT_TAB_DIR.mkdir(parents=True, exist_ok=True)
-    tables.summary_table(REPORT_TAB_DIR / "ablation_summary.tex", groups,
-                         caption="Statystyki kosztu — ablacja przeszukiwania lokalnego",
-                         label="tab:ablation_summary")
-    hv_groups = {m: df[df.method == m]["hypervolume"].values for m in df.method.unique()}
-    tables.summary_table(REPORT_TAB_DIR / "ablation_hv.tex", hv_groups,
-                         caption="Statystyki hiperobjetosci — ablacja",
-                         label="tab:ablation_hv", metric_name="hiperobjetosc")
-    if all(len(v) >= 2 for v in groups.values()):
-        cmp = compare_variants(groups)
-        tables.comparison_table(REPORT_TAB_DIR / "ablation_test.tex", cmp,
-                               caption="Test Manna-Whitneya (koszt) — memetyk vs NSGA-II",
-                               label="tab:ablation_test")
+    plots.plot_pareto(extra["pareto"], _figpaths("pareto_ablation"),
+                      title="Fronty Pareto: memetyk vs NSGA-II")
+    groups = {m: df[df.method == m]["cost"].values for m in df.method.unique()}
+    plots.plot_boxplot(groups, _figpaths("boxplot_ablation"), title="Koszt: memetyk vs NSGA-II")
+
     print(df.to_string(index=False))
     return df
 
@@ -116,12 +93,10 @@ def experiment_disruption(cfg):
     df = _save_csv(records, "disruption")
     if example is not None:
         inst = example["instance"]
-        for stem in _figpaths("gantt_before_absence"):
-            gantt.gantt_matplotlib(inst, example["base"], stem,
-                                   title="Grafik przed absencja")
-        for stem in _figpaths("gantt_after_reopt"):
-            gantt.gantt_matplotlib(inst, example["reopt"].schedule, stem,
-                                   title="Grafik po reoptymalizacji")
+        gantt.gantt_matplotlib(inst, example["base"], _figpaths("gantt_before_absence"),
+                               title="Grafik przed absencja")
+        gantt.gantt_matplotlib(inst, example["reopt"].schedule, _figpaths("gantt_after_reopt"),
+                               title="Grafik po reoptymalizacji")
     print(df.to_string(index=False))
     return df
 
@@ -148,7 +123,7 @@ def main(argv=None):
         experiment_ablation(cfg)
     if run_all or args.scenario == "disruption":
         experiment_disruption(cfg)
-    print("Gotowe. Wyniki w results/, figury w figures/ i report/figures/.")
+    print("Gotowe. Wyniki w results/, figury w figures/.")
 
 
 if __name__ == "__main__":

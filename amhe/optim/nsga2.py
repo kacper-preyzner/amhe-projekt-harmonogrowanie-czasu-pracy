@@ -1,16 +1,4 @@
-"""Wlasna implementacja jadra NSGA-II (Deb i in., 2002).
-
-Modul jest *generyczny* — operuje wylacznie na macierzy wartosci kryteriow ``F``
-(N x M, minimalizacja). Zawiera:
-
-    * relacje dominacji Pareto,
-    * szybkie sortowanie niezdominowane (fast non-dominated sort),
-    * miare zageszczenia (crowding distance),
-    * selekcje srodowiskowa (mu+lambda) i turniejowa wg (ranga, zageszczenie).
-
-Logika specyficzna dla grafiku (operatory, ocena) znajduje sie w innych modulach,
-dzieki czemu samo NSGA-II jest proste do przetestowania.
-"""
+"""Własna implementacja NSGA-II: dominacja Pareto, sortowanie, crowding, turniej."""
 
 from __future__ import annotations
 
@@ -18,18 +6,18 @@ import numpy as np
 
 
 def dominates(a, b) -> bool:
-    """Czy ``a`` dominuje ``b`` (wszystkie kryteria <=, co najmniej jedno <)."""
+    """Czy a dominuje b (wszystkie kryteria <=, co najmniej jedno <)."""
     a = np.asarray(a, dtype=float)
     b = np.asarray(b, dtype=float)
     return bool(np.all(a <= b) and np.any(a < b))
 
 
 def fast_non_dominated_sort(F) -> list:
-    """Dzieli rozwiazania na fronty Pareto. Zwraca liste front (list indeksow)."""
+    """Dzieli rozwiązania na fronty Pareto. Zwraca listę frontów (listy indeksów)."""
     F = np.asarray(F, dtype=float)
     n = len(F)
-    dominated = [[] for _ in range(n)]   # rozwiazania zdominowane przez i
-    dom_count = np.zeros(n, dtype=int)   # ile rozwiazan dominuje i
+    dominated = [[] for _ in range(n)]
+    dom_count = np.zeros(n, dtype=int)
     fronts: list[list[int]] = [[]]
 
     for p in range(n):
@@ -53,12 +41,12 @@ def fast_non_dominated_sort(F) -> list:
                     nxt.append(q)
         i += 1
         fronts.append(nxt)
-    fronts.pop()  # ostatni jest pusty
+    fronts.pop()
     return fronts
 
 
 def crowding_distance(F, front) -> np.ndarray:
-    """Miara zageszczenia dla rozwiazan z jednego frontu (kolejnosc jak we ``front``)."""
+    """Miara zagęszczenia dla jednego frontu."""
     F = np.asarray(F, dtype=float)
     length = len(front)
     dist = np.zeros(length, dtype=float)
@@ -79,7 +67,7 @@ def crowding_distance(F, front) -> np.ndarray:
 
 
 def rank_and_crowding(F):
-    """Zwraca (rank, crowd, fronts) dla calej populacji."""
+    """Zwraca (rank, crowd, fronts) dla całej populacji."""
     n = len(F)
     fronts = fast_non_dominated_sort(F)
     rank = np.zeros(n, dtype=int)
@@ -93,7 +81,7 @@ def rank_and_crowding(F):
 
 
 def environmental_selection(F, n_select: int) -> np.ndarray:
-    """Wybiera ``n_select`` rozwiazan wg (ranga rosnaco, zageszczenie malejaco)."""
+    """Wybiera n_select rozwiązań wg (ranga rosnąco, zagęszczenie malejąco)."""
     fronts = fast_non_dominated_sort(F)
     selected: list[int] = []
     for front in fronts:
@@ -109,7 +97,7 @@ def environmental_selection(F, n_select: int) -> np.ndarray:
 
 
 def binary_tournament(rank, crowd, rng) -> int:
-    """Turniej binarny: lepsza ranga, a przy remisie wieksze zageszczenie."""
+    """Turniej binarny: lepsza ranga, przy remisie — większe zagęszczenie."""
     i, j = rng.integers(0, len(rank), size=2)
     if rank[i] < rank[j]:
         return int(i)

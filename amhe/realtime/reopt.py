@@ -1,17 +1,4 @@
-"""Reoptymalizacja w czasie rzeczywistym ("pogotowie") po absencji pracownika.
-
-Gdy w trakcie tygodnia pracownik zglasza niedyspozycyjnosc (np. L4), nie ukladamy
-calego grafiku od nowa. Zamiast tego:
-
-    1. usuwamy wszystkie zmiany nieobecnego pracownika (powstaje luka w pokryciu),
-    2. lokalnie latamy luke: dla kazdego dnia, w ktorym powstal niedobor, szukamy
-       wolnego, kompetentnego zastepcy i dokladamy mu zmiane pokrywajaca brakujace
-       sloty — o ile nie narusza to twardych ograniczen (sprawdzane operatorem
-       naprawczym i porownaniem pokrycia).
-
-Mierzymy czas reoptymalizacji oraz jakosc (wzrost kosztu, przywrocone pokrycie) —
-to dane do scenariusza 3 eksperymentow.
-"""
+"""Lokalna reoptymalizacja po absencji pracownika — łatanie grafiku bez przebudowy całości."""
 
 from __future__ import annotations
 
@@ -26,26 +13,23 @@ from amhe.model.objectives import coverage_shortfall, cost_objective
 from amhe.model.schedule import ProblemInstance, Schedule, coverage
 from amhe.repair import repair
 
-#: dlugosc zmiany zastepczej (sloty) — krotka, by latac punktowo
 PATCH_SHIFT_SLOTS = law.hours_to_slots(4)
 
 
 @dataclass
 class ReoptResult:
-    """Wynik lokalnej reoptymalizacji po absencji."""
-
     schedule: Schedule
     absent_employee: int
-    shortfall_before: int       # niedobor tuz po usunieciu nieobecnego
-    shortfall_after: int        # niedobor po zalataniu
-    cost_before: float          # koszt grafiku przed absencja
-    cost_after: float           # koszt grafiku po reoptymalizacji
-    recovered_slots: int        # ile agento-slotow niedoboru udalo sie odzyskac
-    wall_time: float            # czas reoptymalizacji (s)
+    shortfall_before: int
+    shortfall_after: int
+    cost_before: float
+    cost_after: float
+    recovered_slots: int
+    wall_time: float
 
 
 def remove_employee(schedule: Schedule, employee: int) -> Schedule:
-    """Zwraca kopie grafiku z wyzerowanymi zmianami danego pracownika (absencja)."""
+    """Kopia grafiku z wyzerowanymi zmianami danego pracownika."""
     s = schedule.copy()
     s.start[employee, :] = 0
     s.length[employee, :] = 0
@@ -54,14 +38,7 @@ def remove_employee(schedule: Schedule, employee: int) -> Schedule:
 
 def reoptimize_absence(instance: ProblemInstance, schedule: Schedule,
                        absent: int, skill_threshold: float = 0.0) -> ReoptResult:
-    """Lokalnie latamy grafik po absencji pracownika ``absent``.
-
-    Args:
-        instance:         instancja problemu,
-        schedule:         (legalny) grafik bazowy sprzed absencji,
-        absent:           indeks nieobecnego pracownika,
-        skill_threshold:  minimalny poziom kompetencji zastepcy.
-    """
+    """Łata grafik po absencji pracownika absent — szuka zastępców dzień po dniu."""
     t0 = time.perf_counter()
     cost_before = cost_objective(instance, schedule)
 
@@ -92,19 +69,17 @@ def reoptimize_absence(instance: ProblemInstance, schedule: Schedule,
 
 def _patch_day(instance: ProblemInstance, schedule: Schedule, day: int,
                absent: int, skill_threshold: float) -> None:
-    """Lata niedobor w jednym dniu, dokladajac zmiany wolnym, kompetentnym zastepcom."""
+    """Dokłada zmiany wolnym, kompetentnym zastępcom tam, gdzie jest niedobór."""
     cov = coverage(instance, schedule)
     deficit = instance.demand[day] - cov[day]
     if deficit.max() <= 0:
         return
 
-    # kandydaci: wolni tego dnia, o wystarczajacych kompetencjach, nie nieobecny
     candidates = [
         e for e, emp in enumerate(instance.employees)
         if e != absent and schedule.length[e, day] == 0
         and emp.skill >= skill_threshold
     ]
-    # preferuj pracownikow o wyzszych kompetencjach
     candidates.sort(key=lambda e: -instance.employees[e].skill)
 
     while deficit.max() > 0 and candidates:
@@ -118,7 +93,6 @@ def _patch_day(instance: ProblemInstance, schedule: Schedule, day: int,
         trial.length[e, day] = ln
         trial = repair(trial)
 
-        # zaakceptuj tylko, jesli zmniejsza niedobor i pozostaje legalny
         if (is_legal(instance, trial)
                 and coverage_shortfall(instance, trial)
                 < coverage_shortfall(instance, schedule)):

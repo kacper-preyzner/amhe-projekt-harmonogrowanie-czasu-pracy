@@ -1,16 +1,4 @@
-"""Baseline CP-SAT (Google OR-Tools) — dokladny solver dla malych instancji.
-
-Modeluje ten sam problem co metaheurystyka (jedna ciagla zmiana na dobe, <= 8 h,
-odpoczynek dobowy >= 11 h, pokrycie popytu), ale **jednokryterialnie**: minimalizuje
-koszt (place + dodatki nocny/niedzielny + kara za niedobor obsady). Sluzy jako punkt
-odniesienia: na malej instancji CP-SAT znajduje rozwiazanie optymalne (lub bliskie),
-wzgledem ktorego oceniamy jakosc memetycznego NSGA-II.
-
-Koszty liczone sa w **groszach** (liczby calkowite), bo CP-SAT wymaga calkowitej
-funkcji celu; wynik jest przeliczany z powrotem na zlote. Rozwiazanie jest zwracane
-jako :class:`Schedule`, dzieki czemu mozna je zweryfikowac tymi samymi funkcjami,
-co wynik metaheurystyki.
-"""
+"""Solver CP-SAT (OR-Tools) jako baseline — minimalizuje f1 na małych instancjach."""
 
 from __future__ import annotations
 
@@ -23,10 +11,9 @@ from amhe.model import labor_law as law
 from amhe.model.objectives import UNDERSTAFF_PENALTY_PER_SLOT
 from amhe.model.schedule import ProblemInstance, Schedule
 
-#: minimalna dlugosc zmiany (sloty) — spojnie z operatorami metaheurystyki
 MIN_SHIFT_SLOTS = law.hours_to_slots(4)
 
-# koszty w groszach (CP-SAT wymaga calkowitej funkcji celu)
+# koszty w groszach — CP-SAT wymaga całkowitej funkcji celu
 _BASE_GR = round(law.BASE_PER_SLOT * 100)
 _NIGHT_GR = round(law.NIGHT_BONUS_PER_SLOT * 100)
 _SUNDAY_GR = round(law.SUNDAY_HOLIDAY_BONUS_PER_SLOT * 100)
@@ -35,18 +22,16 @@ _UNDERSTAFF_GR = round(UNDERSTAFF_PENALTY_PER_SLOT * 100)
 
 @dataclass
 class CPSATResult:
-    """Wynik solvera CP-SAT."""
-
     schedule: Schedule
-    cost: float                 # koszt w zlotych (place + kara niedoboru)
-    status: str                 # 'OPTIMAL' / 'FEASIBLE' / 'INFEASIBLE' / ...
-    wall_time: float            # czas solvera w sekundach
+    cost: float
+    status: str
+    wall_time: float
     is_optimal: bool
 
 
 def solve_cpsat(instance: ProblemInstance, max_time: float = 30.0,
                 workers: int = 8) -> CPSATResult:
-    """Rozwiazuje instancje solverem CP-SAT i zwraca najlepszy znaleziony grafik."""
+    """Rozwiązuje instancję solverem CP-SAT i zwraca najlepszy znaleziony grafik."""
     E, D, S = instance.n_employees, instance.n_days, law.SLOTS_PER_DAY
     night = law.night_mask()
     model = cp_model.CpModel()
@@ -54,7 +39,7 @@ def solve_cpsat(instance: ProblemInstance, max_time: float = 30.0,
     pres = {}
     start = {}
     size = {}
-    work = {}  # work[e,d,s] = czy pracownik e pracuje w slocie s dnia d
+    work = {}
 
     for e in range(E):
         for d in range(D):
@@ -64,12 +49,10 @@ def solve_cpsat(instance: ProblemInstance, max_time: float = 30.0,
             end = model.NewIntVar(0, S, f"end_{e}_{d}")
             model.Add(end == start[e, d] + size[e, d])
 
-            # dlugosc: 0 gdy wolne, >= MIN gdy zmiana
             model.Add(size[e, d] == 0).OnlyEnforceIf(pres[e, d].Not())
             model.Add(size[e, d] >= MIN_SHIFT_SLOTS).OnlyEnforceIf(pres[e, d])
             model.Add(size[e, d] >= 1).OnlyEnforceIf(pres[e, d])
 
-            # linkowanie work[e,d,s] = pres AND (start <= s) AND (s < end)
             covered_sum = []
             for s in range(S):
                 after = model.NewBoolVar(f"af_{e}_{d}_{s}")
@@ -85,23 +68,22 @@ def solve_cpsat(instance: ProblemInstance, max_time: float = 30.0,
                 covered_sum.append(w)
             model.Add(sum(covered_sum) == size[e, d])
 
-    # odpoczynek dobowy: >= 11 h miedzy zmiana dnia d a dnia d+1
+    # odpoczynek dobowy >= 11h między dniem d i d+1
     for e in range(E):
         for d in range(D - 1):
             end_d = model.NewIntVar(0, S, f"endd_{e}_{d}")
             model.Add(end_d == start[e, d] + size[e, d])
-            # 48 + start[d+1] - end_d >= 22  (tylko gdy oba dni pracujace)
             model.Add(law.SLOTS_PER_DAY + start[e, d + 1] - end_d
                       >= law.MIN_DAILY_REST_SLOTS).OnlyEnforceIf(
                           [pres[e, d], pres[e, d + 1]])
 
-    # tygodniowy limit godzin (dla pelnych tygodni)
+    # tygodniowy limit godzin
     for e in range(E):
         for w_idx in range(instance.n_weeks):
             days = [d for d in range(D) if d // law.DAYS_PER_WEEK == w_idx]
             model.Add(sum(size[e, d] for d in days) <= law.MAX_WEEKLY_SLOTS)
 
-    # --- funkcja celu (grosze) ---
+    # funkcja celu (grosze)
     terms = []
     for e in range(E):
         for d in range(D):
@@ -114,7 +96,6 @@ def solve_cpsat(instance: ProblemInstance, max_time: float = 30.0,
                     coef += _SUNDAY_GR
                 terms.append(coef * work[e, d, s])
 
-    # kara za niedobor obsady
     for d in range(D):
         for s in range(S):
             cov = sum(work[e, d, s] for e in range(E))

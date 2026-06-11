@@ -1,17 +1,4 @@
-"""Memetyczny NSGA-II — glowny algorytm projektu.
-
-Laczy wlasne jadro NSGA-II (:mod:`amhe.optim.nsga2`), operatory genetyczne na grafiku
-(:mod:`amhe.optim.operators`) oraz przeszukiwanie lokalne (:mod:`amhe.optim.local_search`).
-Flaga ``use_local_search`` wlacza/wylacza komponent memetyczny, co umozliwia badanie
-ablacyjne (scenariusz 2): memetyk vs czysty NSGA-II z operatorem naprawczym.
-
-Schemat (mu+lambda):
-    1. inicjalizacja populacji (rozmiar ``pop_size``), ocena,
-    2. w kazdym pokoleniu: selekcja turniejowa rodzicow -> krzyzowanie -> mutacja
-       -> (opcjonalnie) przeszukiwanie lokalne -> naprawa (w operatorach),
-    3. polaczenie rodzicow i potomstwa, selekcja srodowiskowa NSGA-II do ``pop_size``,
-    4. rejestracja historii (najlepszy koszt, hiperobjetosc) do krzywych zbieznosci.
-"""
+"""Memetyczny NSGA-II — główny algorytm projektu (NSGA-II + przeszukiwanie lokalne)."""
 
 from __future__ import annotations
 
@@ -33,26 +20,22 @@ from amhe.optim.nsga2 import (
 
 @dataclass
 class NSGA2Config:
-    """Parametry przebiegu memetycznego NSGA-II."""
-
     pop_size: int = 40
     n_generations: int = 50
     crossover_prob: float = 0.9
     mutation_rate: float = 0.1
     use_local_search: bool = True
     local_search_steps: int = 15
-    local_search_frac: float = 0.5     # odsetek potomstwa poddawany LS
+    local_search_frac: float = 0.5
     seed: int = 0
 
 
 @dataclass
 class NSGA2Result:
-    """Wynik przebiegu: front Pareto (grafiki + kryteria) i historia zbieznosci."""
-
     population: list[Schedule]
-    objectives: np.ndarray                 # (pop_size, 2)
+    objectives: np.ndarray
     pareto_schedules: list[Schedule]
-    pareto_objectives: np.ndarray          # (n_front, 2)
+    pareto_objectives: np.ndarray
     history_best_cost: list[float] = field(default_factory=list)
     history_hypervolume: list[float] = field(default_factory=list)
     n_evaluations: int = 0
@@ -63,10 +46,7 @@ def _evaluate_population(instance, population):
 
 
 def hypervolume_2d(points: np.ndarray, ref: np.ndarray) -> float:
-    """Hiperobjetosc 2D (minimalizacja) frontu wzgledem punktu odniesienia ``ref``.
-
-    Liczona jako pole zdominowane przez front pod ``ref``. Zaklada punkty <= ref.
-    """
+    """Hiperbjętość 2D (minimalizacja) frontu względem punktu odniesienia."""
     pts = np.asarray(points, dtype=float)
     pts = pts[(pts[:, 0] <= ref[0]) & (pts[:, 1] <= ref[1])]
     if len(pts) == 0:
@@ -92,7 +72,6 @@ def run_nsga2(instance: ProblemInstance, config: NSGA2Config) -> NSGA2Result:
     F = _evaluate_population(instance, population)
     n_eval += len(population)
 
-    # punkt odniesienia do hiperobjetosci (gorny rog, stale przez caly przebieg)
     ref = F.max(axis=0) * 1.1 + 1.0
 
     history_cost: list[float] = []
@@ -108,7 +87,6 @@ def run_nsga2(instance: ProblemInstance, config: NSGA2Config) -> NSGA2Result:
     for _ in range(config.n_generations):
         rank, crowd, _ = rank_and_crowding(F)
 
-        # --- tworzenie potomstwa ---
         offspring: list[Schedule] = []
         while len(offspring) < config.pop_size:
             ia = binary_tournament(rank, crowd, rng)
@@ -122,7 +100,6 @@ def run_nsga2(instance: ProblemInstance, config: NSGA2Config) -> NSGA2Result:
             offspring.extend([c1, c2])
         offspring = offspring[:config.pop_size]
 
-        # --- przeszukiwanie lokalne (komponent memetyczny) ---
         if config.use_local_search:
             for i in range(len(offspring)):
                 if rng.random() < config.local_search_frac:
@@ -134,7 +111,6 @@ def run_nsga2(instance: ProblemInstance, config: NSGA2Config) -> NSGA2Result:
         F_off = _evaluate_population(instance, offspring)
         n_eval += len(offspring)
 
-        # --- selekcja srodowiskowa (mu+lambda) ---
         combined = population + offspring
         F_comb = np.vstack([F, F_off])
         keep = environmental_selection(F_comb, config.pop_size)
