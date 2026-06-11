@@ -13,19 +13,16 @@ def _best_cost_idx(pareto_objectives):
     return int(np.argmin(pareto_objectives[:, 0]))
 
 
-def run_vs_cpsat(seeds=(1, 2, 3), gens=60, pop=40, cpsat_time=30.0):
-    """Scenariusz 1: porownanie z dokladnym solverem CP-SAT."""
-    inst = scenario_cpsat()
+def _run_vs_cpsat_single(inst, instance_label, seeds, gens, pop, cpsat_time):
+    """Porownanie memetyk vs CP-SAT dla jednej instancji."""
     records = []
-
     cp = solve_cpsat(inst, max_time=cpsat_time)
     records.append({
-        "scenario": "vs_cpsat", "method": "CP-SAT", "seed": -1,
+        "instance": instance_label, "method": "CP-SAT", "seed": -1,
         "cost": cp.cost, "pref_penalty": preference_penalty(inst, cp.schedule),
         "wall_time": cp.wall_time, "status": cp.status, "optimal": cp.is_optimal,
-        "n_eval": np.nan,
+        "gap_pct": 0.0, "n_eval": np.nan,
     })
-
     for seed in seeds:
         t0 = time.perf_counter()
         res = run_nsga2(inst, NSGA2Config(pop_size=pop, n_generations=gens, seed=seed))
@@ -34,17 +31,35 @@ def run_vs_cpsat(seeds=(1, 2, 3), gens=60, pop=40, cpsat_time=30.0):
         best = res.pareto_schedules[idx]
         bd = breakdown(inst, best)
         records.append({
-            "scenario": "vs_cpsat", "method": "memetyk", "seed": seed,
+            "instance": instance_label, "method": "memetyk", "seed": seed,
             "cost": bd["cost"], "pref_penalty": bd["preference_penalty"],
             "wall_time": wall, "status": "FEASIBLE", "optimal": False,
             "n_eval": res.n_evaluations,
             "gap_pct": (bd["cost"] - cp.cost) / cp.cost * 100.0 if cp.cost > 0 else np.nan,
         })
-    return records, {"cpsat": cp, "instance": inst}
+    return records, cp
+
+
+def run_vs_cpsat(seeds=(1, 2, 3), gens=60, pop=40, cpsat_time=30.0):
+    """Scenariusz 2: porownanie z dokladnym solverem CP-SAT na malej i sredniej instancji."""
+    inst_small = scenario_cpsat()
+    inst_medium = scenario_medium()
+
+    records_small, cp_small = _run_vs_cpsat_single(
+        inst_small, "maly_cpsat", seeds, gens, pop, cpsat_time)
+    records_medium, cp_medium = _run_vs_cpsat_single(
+        inst_medium, "sredni_15x14", seeds, gens, pop, cpsat_time)
+
+    all_records = records_small + records_medium
+    extra = {
+        "instance_small": inst_small, "cpsat_small": cp_small,
+        "instance_medium": inst_medium, "cpsat_medium": cp_medium,
+    }
+    return all_records, extra
 
 
 def run_ablation(seeds=(1, 2, 3, 4, 5), gens=60, pop=40):
-    """Scenariusz 2: wplyw przeszukiwania lokalnego (memetyk vs czysty NSGA-II)."""
+    """Scenariusz 1: wplyw przeszukiwania lokalnego (memetyk vs czysty NSGA-II)."""
     inst = scenario_medium()
     records = []
     histories = {"memetyk": [], "NSGA-II": []}

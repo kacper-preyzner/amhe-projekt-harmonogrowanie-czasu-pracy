@@ -55,6 +55,29 @@ def summary_table(path, groups: dict, caption, label, metric_name="koszt [zl]"):
     return write_table(path, header, rows, cap, label)
 
 
+def vs_cpsat_table(path, df_inst, caption, label):
+    """Tabela memetyk vs CP-SAT dla jednej instancji: koszt, luka[%], czas[s], status."""
+    header = ["Metoda", "Koszt (sr.)", "Luka kosztu [\\%]", "Czas [s]", "Status"]
+    rows = []
+    cp_row = df_inst[df_inst.method == "CP-SAT"].iloc[0]
+    mem_rows = df_inst[df_inst.method == "memetyk"]
+    rows.append([
+        "CP-SAT",
+        _fmt(cp_row["cost"]),
+        "0.0",
+        _fmt(cp_row["wall_time"], 2),
+        str(cp_row["status"]),
+    ])
+    rows.append([
+        "memetyk",
+        _fmt(mem_rows["cost"].mean()),
+        _fmt(mem_rows["gap_pct"].mean()),
+        _fmt(mem_rows["wall_time"].mean(), 2),
+        "FEASIBLE",
+    ])
+    return write_table(path, header, rows, caption, label, col_format="lrrrr")  # noqa: E501 — 5 cols but first is text
+
+
 def comparison_table(path, results, caption, label):
     """Tabela porownan parami (mediany, p-wartosc, p po korekcie Holma, istotnosc)."""
     header = ["A", "B", "med. A", "med. B", "p", "p (Holm)", "istotne"]

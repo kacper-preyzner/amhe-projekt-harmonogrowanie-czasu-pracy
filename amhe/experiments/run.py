@@ -36,22 +36,44 @@ def _figpaths(stem):
 
 
 def experiment_vs_cpsat(cfg):
-    print("[1/3] vs CP-SAT ...")
+    print("[2/3] vs CP-SAT (mala + srednia instancja)...")
     records, extra = scenarios.run_vs_cpsat(
         seeds=cfg["seeds"], gens=cfg["gens"], pop=cfg["pop"],
         cpsat_time=cfg["cpsat_time"])
     df = _save_csv(records, "vs_cpsat")
-    inst, cp = extra["instance"], extra["cpsat"]
-    gantt.gantt_matplotlib(inst, cp.schedule, _figpaths("gantt_cpsat"),
-                           title="Harmonogram CP-SAT (optimum)")
-    plots.plot_coverage(inst, cp.schedule, _figpaths("coverage_cpsat"), day=1,
-                        title="CP-SAT: pokrycie popytu (dzien 1)")
+
+    inst_s, cp_s = extra["instance_small"], extra["cpsat_small"]
+    gantt.gantt_matplotlib(inst_s, cp_s.schedule, _figpaths("gantt_cpsat_small"),
+                           title="Harmonogram CP-SAT — mala instancja")
+    plots.plot_coverage(inst_s, cp_s.schedule, _figpaths("coverage_cpsat_small"), day=1,
+                        title="CP-SAT: pokrycie popytu — mala instancja (dzien 1)")
+
+    inst_m, cp_m = extra["instance_medium"], extra["cpsat_medium"]
+    gantt.gantt_matplotlib(inst_m, cp_m.schedule, _figpaths("gantt_cpsat_medium"),
+                           title="Harmonogram CP-SAT — srednia instancja")
+    plots.plot_coverage(inst_m, cp_m.schedule, _figpaths("coverage_cpsat_medium"), day=1,
+                        title="CP-SAT: pokrycie popytu — srednia instancja (dzien 1)")
+
+    df_small = df[df["instance"] == "maly_cpsat"]
+    df_medium = df[df["instance"] == "sredni_15x14"]
+
+    tables.vs_cpsat_table(
+        RESULTS_DIR / "tab_vs_cpsat_small.tex", df_small,
+        "Memetyk vs CP-SAT -- mala instancja (6 prac. $\\times$ 3 dni)",
+        "tab:vs_cpsat_small",
+    )
+    tables.vs_cpsat_table(
+        RESULTS_DIR / "tab_vs_cpsat_medium.tex", df_medium,
+        "Memetyk vs CP-SAT -- srednia instancja (15 prac. $\\times$ 14 dni)",
+        "tab:vs_cpsat_medium",
+    )
+
     print(df.to_string(index=False))
     return df
 
 
 def experiment_ablation(cfg):
-    print("[2/3] Ablacja (LS) ...")
+    print("[1/3] Ablacja (LS) ...")
     records, extra = scenarios.run_ablation(
         seeds=cfg["seeds"], gens=cfg["gens"], pop=cfg["pop"])
     df = _save_csv(records, "ablation")
@@ -117,10 +139,10 @@ def main(argv=None):
     cfg = SMOKE if args.smoke else FULL
     run_all = args.all or (not args.scenario)
 
-    if run_all or args.scenario == "vs_cpsat":
-        experiment_vs_cpsat(cfg)
     if run_all or args.scenario == "ablation":
         experiment_ablation(cfg)
+    if run_all or args.scenario == "vs_cpsat":
+        experiment_vs_cpsat(cfg)
     if run_all or args.scenario == "disruption":
         experiment_disruption(cfg)
     print("Gotowe. Wyniki w results/, figury w figures/.")
