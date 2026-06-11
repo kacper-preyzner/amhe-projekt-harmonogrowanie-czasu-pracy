@@ -66,6 +66,25 @@ def experiment_ablation(cfg):
     for stem in _figpaths("convergence_ablation"):
         plots.plot_convergence(extra["histories"], stem,
                                title="Zbieznosc: memetyk vs NSGA-II")
+
+    # krzywa hiperobjetosci znormalizowana do 1; punkt odniesienia HV jest
+    # wspolny dla obu metod w ramach ziarna, wiec normalizujemy per ziarno
+    # przez maksimum z obu metod
+    hv_runs = {m: np.asarray(v, dtype=float)
+               for m, v in extra["hv_histories"].items()}
+    denom = np.maximum.reduce([a.max(axis=1) for a in hv_runs.values()])
+    hv_norm = {m: a / denom[:, None] for m, a in hv_runs.items()}
+    for stem in _figpaths("hv_ablation"):
+        plots.plot_convergence(hv_norm, stem,
+                               ylabel="hiperobjetosc (znormalizowana)",
+                               title="Hiperobjetosc frontu: memetyk vs NSGA-II")
+    hv_rows = [
+        {"method": m, "seed": seed, "generation": g, "hypervolume_norm": val}
+        for m, runs in hv_norm.items()
+        for seed, run in zip(cfg["seeds"], runs)
+        for g, val in enumerate(run)
+    ]
+    _save_csv(hv_rows, "hv_history")
     for stem in _figpaths("pareto_ablation"):
         plots.plot_pareto(extra["pareto"], stem,
                           title="Fronty Pareto: memetyk vs NSGA-II")

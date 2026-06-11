@@ -61,6 +61,7 @@ def run_ablation(seeds=(1, 2, 3, 4, 5), gens=60, pop=40):
     inst = scenario_medium()
     records = []
     histories = {"memetyk": [], "NSGA-II": []}
+    hv_histories = {"memetyk": [], "NSGA-II": []}
     pareto_example = {}
 
     # wspolny punkt odniesienia do hiperobjetosci (z pierwszego przebiegu)
@@ -81,9 +82,10 @@ def run_ablation(seeds=(1, 2, 3, 4, 5), gens=60, pop=40):
                 "n_eval": res.n_evaluations,
             })
             histories[label].append(res.history_best_cost)
+            hv_histories[label].append(res.history_hypervolume)
             pareto_example[label] = res.pareto_objectives
-    return records, {"histories": histories, "pareto": pareto_example,
-                     "instance": inst, "ref": ref}
+    return records, {"histories": histories, "hv_histories": hv_histories,
+                     "pareto": pareto_example, "instance": inst, "ref": ref}
 
 
 def run_disruption(seeds=(1, 2, 3, 4, 5), gens=50, pop=40, absent=1):

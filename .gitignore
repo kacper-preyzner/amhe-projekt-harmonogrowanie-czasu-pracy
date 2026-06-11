@@ -31,3 +31,6 @@ report/*.blg
 .vscode/
 .idea/
 .DS_Store
+
+overleaf_koncowy.tex
+overleaf_koncowy.old.tex
